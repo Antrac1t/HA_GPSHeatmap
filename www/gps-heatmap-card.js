@@ -200,8 +200,21 @@ class GpsHeatmapCard extends HTMLElement {
 
   async initMap() {
     // Wait for Leaflet to be available
-    if (typeof L === 'undefined') {
-      await this.loadLeaflet();
+    if (typeof L === 'undefined' || typeof L.heatLayer === 'undefined') {
+      try {
+        await this.loadLeaflet();
+      } catch (error) {
+        console.error('Failed to load Leaflet:', error);
+        alert('Chyba při načítání mapových knihoven. Zkontrolujte internetové připojení.');
+        return;
+      }
+    }
+
+    // Verify L.heatLayer is available
+    if (typeof L.heatLayer === 'undefined') {
+      console.error('L.heatLayer is not available after loading');
+      alert('Leaflet.heat plugin se nepodařilo načíst. Zkuste obnovit stránku.');
+      return;
     }
 
     const mapElement = this.shadowRoot.getElementById('map');
@@ -228,25 +241,52 @@ class GpsHeatmapCard extends HTMLElement {
 
   async loadLeaflet() {
     return new Promise((resolve, reject) => {
+      // Check if already loaded
+      if (typeof L !== 'undefined' && typeof L.heatLayer !== 'undefined') {
+        resolve();
+        return;
+      }
+
       // Load Leaflet CSS
-      const cssLink = document.createElement('link');
-      cssLink.rel = 'stylesheet';
-      cssLink.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-      document.head.appendChild(cssLink);
+      if (!document.querySelector('link[href*="leaflet.css"]')) {
+        const cssLink = document.createElement('link');
+        cssLink.rel = 'stylesheet';
+        cssLink.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+        document.head.appendChild(cssLink);
+      }
 
       // Load Leaflet JS
-      const leafletScript = document.createElement('script');
-      leafletScript.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-      leafletScript.onload = () => {
-        // Load Leaflet.heat plugin
-        const heatScript = document.createElement('script');
-        heatScript.src = 'https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js';
-        heatScript.onload = resolve;
-        heatScript.onerror = reject;
-        document.head.appendChild(heatScript);
+      if (typeof L === 'undefined') {
+        const leafletScript = document.createElement('script');
+        leafletScript.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+        leafletScript.onload = () => {
+          console.log('Leaflet loaded');
+          this.loadHeatPlugin().then(resolve).catch(reject);
+        };
+        leafletScript.onerror = () => reject(new Error('Failed to load Leaflet'));
+        document.head.appendChild(leafletScript);
+      } else {
+        this.loadHeatPlugin().then(resolve).catch(reject);
+      }
+    });
+  }
+
+  async loadHeatPlugin() {
+    return new Promise((resolve, reject) => {
+      if (typeof L.heatLayer !== 'undefined') {
+        resolve();
+        return;
+      }
+
+      const heatScript = document.createElement('script');
+      heatScript.src = 'https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js';
+      heatScript.onload = () => {
+        console.log('Leaflet.heat loaded');
+        // Wait a bit to ensure it's fully initialized
+        setTimeout(resolve, 100);
       };
-      leafletScript.onerror = reject;
-      document.head.appendChild(leafletScript);
+      heatScript.onerror = () => reject(new Error('Failed to load Leaflet.heat'));
+      document.head.appendChild(heatScript);
     });
   }
 
@@ -331,23 +371,35 @@ class GpsHeatmapCard extends HTMLElement {
       return;
     }
 
-    // Create heat layer
-    this._heatLayer = L.heatLayer(data.points, {
-      radius: this._config.radius,
-      blur: this._config.blur,
-      maxZoom: this._config.max_zoom,
-      gradient: this._config.gradient
-    }).addTo(this._map);
+    // Verify L.heatLayer exists
+    if (typeof L.heatLayer === 'undefined') {
+      console.error('L.heatLayer is not defined!');
+      alert('Leaflet.heat plugin není načten. Zkuste obnovit stránku (Ctrl+Shift+R).');
+      return;
+    }
 
-    // Update stats
-    this.shadowRoot.getElementById('totalPoints').textContent = data.total_points;
-    this.shadowRoot.getElementById('totalVisits').textContent = data.total_visits;
-    this.shadowRoot.getElementById('stats').style.display = 'block';
+    try {
+      // Create heat layer
+      this._heatLayer = L.heatLayer(data.points, {
+        radius: this._config.radius,
+        blur: this._config.blur,
+        maxZoom: this._config.max_zoom,
+        gradient: this._config.gradient
+      }).addTo(this._map);
 
-    // Fit bounds to data
-    if (data.points.length > 0) {
-      const bounds = L.latLngBounds(data.points.map(p => [p[0], p[1]]));
-      this._map.fitBounds(bounds, { padding: [50, 50] });
+      // Update stats
+      this.shadowRoot.getElementById('totalPoints').textContent = data.total_points;
+      this.shadowRoot.getElementById('totalVisits').textContent = data.total_visits;
+      this.shadowRoot.getElementById('stats').style.display = 'block';
+
+      // Fit bounds to data
+      if (data.points.length > 0) {
+        const bounds = L.latLngBounds(data.points.map(p => [p[0], p[1]]));
+        this._map.fitBounds(bounds, { padding: [50, 50] });
+      }
+    } catch (error) {
+      console.error('Error creating heatmap:', error);
+      alert('Chyba při vytváření heatmapy: ' + error.message);
     }
   }
 
