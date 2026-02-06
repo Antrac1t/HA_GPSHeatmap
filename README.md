@@ -18,7 +18,7 @@ Custom integrace pro Home Assistant, která vytváří heatmapu z GPS historie.
 1. Otevřete HACS v Home Assistant
 2. Přejděte na "Integrace"
 3. Klikněte na tři tečky vpravo nahoře → "Vlastní repozitáře"
-4. Přidejte URL: `https://github.com/vasusername/gps_heatmap`
+4. Přidejte URL: `[https://github.com/vasusername/gps_heatmap](https://github.com/Antrac1t/HA_GPSHeatmap)`
 5. Kategorie: `Integration`
 6. Klikněte na "GPS Heatmap" a nainstalujte
 
