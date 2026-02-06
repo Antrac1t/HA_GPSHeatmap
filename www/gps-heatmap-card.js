@@ -1,3 +1,7 @@
+// GPS Heatmap Card for Home Assistant
+// Ensure we wait for customElements to be ready
+if (!customElements.get('gps-heatmap-card')) {
+  
 class GpsHeatmapCard extends HTMLElement {
   constructor() {
     super();
@@ -365,8 +369,10 @@ class GpsHeatmapCard extends HTMLElement {
   }
 }
 
+// Register the custom element
 customElements.define('gps-heatmap-card', GpsHeatmapCard);
 
+// Register with custom cards
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: 'gps-heatmap-card',
@@ -379,3 +385,5 @@ console.info(
   'color: white; background: #2196F3; font-weight: 700;',
   'color: #2196F3; background: white; font-weight: 700;'
 );
+
+} // End of if (!customElements.get('gps-heatmap-card'))
