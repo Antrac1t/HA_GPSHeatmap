@@ -1,0 +1,32 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Nastavení GPS Heatmap",
+        "description": "Vyberte entity pro zeměpisnou šířku a délku",
+        "data": {
+          "name": "Název",
+          "latitude_entity": "Entita zeměpisné šířky",
+          "longitude_entity": "Entita zeměpisné délky"
+        }
+      }
+    },
+    "error": {
+      "entity_not_found": "Entita nebyla nalezena"
+    },
+    "abort": {
+      "already_configured": "Tato integrace je již nakonfigurována"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Možnosti GPS Heatmap",
+        "data": {
+          "latitude_entity": "Entita zeměpisné šířky",
+          "longitude_entity": "Entita zeměpisné délky"
+        }
+      }
+    }
+  }
+}
