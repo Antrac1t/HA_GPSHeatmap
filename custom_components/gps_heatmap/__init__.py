@@ -70,6 +70,9 @@ class GpsHeatmapView(HomeAssistantView):
             longitude_entity = data.get("longitude_entity")
             start_time = data.get("start_time")
             end_time = data.get("end_time")
+            visit_min_gap_minutes = data.get("visit_min_gap_minutes", 10)
+            visit_min_distance_m = data.get("visit_min_distance_m", 25)
+            cluster_radius_m = data.get("cluster_radius_m", 0)
             
             if not all([latitude_entity, longitude_entity, start_time, end_time]):
                 return web.json_response(
@@ -86,7 +89,10 @@ class GpsHeatmapView(HomeAssistantView):
                 latitude_entity,
                 longitude_entity,
                 start_dt,
-                end_dt
+                end_dt,
+                visit_min_gap_minutes,
+                visit_min_distance_m,
+                cluster_radius_m,
             )
             
             return web.json_response(heatmap_data)
@@ -98,7 +104,16 @@ class GpsHeatmapView(HomeAssistantView):
                 status=500
             )
 
-    async def _get_heatmap_data(self, lat_entity, lon_entity, start_time, end_time):
+    async def _get_heatmap_data(
+        self,
+        lat_entity,
+        lon_entity,
+        start_time,
+        end_time,
+        visit_min_gap_minutes,
+        visit_min_distance_m,
+        cluster_radius_m,
+    ):
         """Fetch and process historical GPS data."""
         
         # Get history from recorder
@@ -131,7 +146,11 @@ class GpsHeatmapView(HomeAssistantView):
             lon_dict = {state.last_updated: state.state for state in lon_states}
             
             # Match timestamps (with tolerance)
-            for lat_time, lat_val in lat_dict.items():
+            last_point = None
+            last_time = None
+            min_gap = timedelta(minutes=float(visit_min_gap_minutes))
+            min_distance_m = float(visit_min_distance_m)
+            for lat_time, lat_val in sorted(lat_dict.items()):
                 # Find closest longitude reading
                 closest_lon = None
                 min_diff = timedelta(seconds=60)  # 60 second tolerance
@@ -146,6 +165,19 @@ class GpsHeatmapView(HomeAssistantView):
                     try:
                         lat = float(lat_val)
                         lon = float(closest_lon)
+
+                        if last_point is not None and last_time is not None:
+                            time_diff = abs(lat_time - last_time)
+                            distance_m = _haversine_m(last_point[0], last_point[1], lat, lon)
+                            # Always ignore nearly identical locations
+                            if distance_m < min_distance_m:
+                                continue
+                            # Ignore too-frequent movement updates
+                            if time_diff < min_gap:
+                                continue
+
+                        last_point = (lat, lon)
+                        last_time = lat_time
                         
                         # Round to reduce precision for grouping
                         lat_rounded = round(lat, 5)
@@ -166,9 +198,44 @@ class GpsHeatmapView(HomeAssistantView):
         # Convert to list format for heatmap
         for key, value in intensity_map.items():
             points.append([value["lat"], value["lon"], value["count"]])
+
+        # Cluster nearby points into a single marker if configured
+        cluster_radius_m = float(cluster_radius_m or 0)
+        if cluster_radius_m > 0 and points:
+            clusters = []
+            for lat, lon, count in points:
+                merged = False
+                for cluster in clusters:
+                    distance_m = _haversine_m(cluster["lat"], cluster["lon"], lat, lon)
+                    if distance_m <= cluster_radius_m:
+                        total_count = cluster["count"] + count
+                        cluster["lat"] = (cluster["lat"] * cluster["count"] + lat * count) / total_count
+                        cluster["lon"] = (cluster["lon"] * cluster["count"] + lon * count) / total_count
+                        cluster["count"] = total_count
+                        merged = True
+                        break
+                if not merged:
+                    clusters.append({"lat": lat, "lon": lon, "count": count})
+
+            points = [[c["lat"], c["lon"], c["count"]] for c in clusters]
+
+        max_count = max((value["count"] for value in intensity_map.values()), default=0)
         
         return {
             "points": points,
             "total_points": len(points),
-            "total_visits": sum(p[2] for p in points)
+            "total_visits": sum(p[2] for p in points),
+            "max_count": max_count
         }
+
+
+def _haversine_m(lat1, lon1, lat2, lon2):
+    """Return distance between two coordinates in meters."""
+    from math import radians, sin, cos, sqrt, atan2
+
+    r = 6371000.0
+    d_lat = radians(lat2 - lat1)
+    d_lon = radians(lon2 - lon1)
+    a = sin(d_lat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(d_lon / 2) ** 2
+    c = 2 * atan2(sqrt(a), sqrt(1 - a))
+    return r * c
