@@ -1,0 +1,35 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "GPS Heatmap Setup",
+        "description": "Select entities for latitude and longitude",
+        "data": {
+          "name": "Name",
+          "latitude_entity": "Latitude entity",
+          "longitude_entity": "Longitude entity"
+        }
+      }
+    },
+    "error": {
+      "entity_not_found": "Entity not found"
+    },
+    "abort": {
+      "already_configured": "This integration is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "GPS Heatmap Options",
+        "data": {
+          "latitude_entity": "Latitude entity",
+          "longitude_entity": "Longitude entity",
+          "visit_min_gap_minutes": "Minimum time gap between visits (min)",
+          "visit_min_distance_m": "Minimum distance for a new visit (m)",
+          "cluster_radius_m": "Cluster points within radius (m)"
+        }
+      }
+    }
+  }
+}
