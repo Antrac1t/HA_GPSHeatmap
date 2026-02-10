@@ -2,29 +2,32 @@
   "config": {
     "step": {
       "user": {
-        "title": "Nastavení GPS Heatmap",
-        "description": "Vyberte entity pro zeměpisnou šířku a délku",
+        "title": "GPS Heatmap Setup",
+        "description": "Select entities for latitude and longitude",
         "data": {
-          "name": "Název",
-          "latitude_entity": "Entita zeměpisné šířky",
-          "longitude_entity": "Entita zeměpisné délky"
+          "name": "Name",
+          "latitude_entity": "Latitude entity",
+          "longitude_entity": "Longitude entity"
         }
       }
     },
     "error": {
-      "entity_not_found": "Entita nebyla nalezena"
+      "entity_not_found": "Entity not found"
     },
     "abort": {
-      "already_configured": "Tato integrace je již nakonfigurována"
+      "already_configured": "This integration is already configured"
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Možnosti GPS Heatmap",
+        "title": "GPS Heatmap Options",
         "data": {
-          "latitude_entity": "Entita zeměpisné šířky",
-          "longitude_entity": "Entita zeměpisné délky"
+          "latitude_entity": "Latitude entity",
+          "longitude_entity": "Longitude entity",
+          "visit_min_gap_minutes": "Minimum time gap between visits (min)",
+          "visit_min_distance_m": "Minimum distance for a new visit (m)",
+          "cluster_radius_m": "Cluster points within radius (m)"
         }
       }
     }
