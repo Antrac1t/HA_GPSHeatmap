@@ -12,6 +12,12 @@ from .const import (
     CONF_LONGITUDE_ENTITY,
     CONF_NAME,
     DEFAULT_NAME,
+    CONF_VISIT_MIN_GAP_MINUTES,
+    CONF_VISIT_MIN_DISTANCE_M,
+    CONF_CLUSTER_RADIUS_M,
+    DEFAULT_VISIT_MIN_GAP_MINUTES,
+    DEFAULT_VISIT_MIN_DISTANCE_M,
+    DEFAULT_CLUSTER_RADIUS_M,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -70,7 +76,7 @@ class GpsHeatmapOptionsFlow(config_entries.OptionsFlow):
 
     def __init__(self, config_entry):
         """Initialize options flow."""
-        self.config_entry = config_entry
+        self._config_entry = config_entry
 
     async def async_step_init(self, user_input=None):
         """Manage the options."""
@@ -80,16 +86,33 @@ class GpsHeatmapOptionsFlow(config_entries.OptionsFlow):
         data_schema = vol.Schema({
             vol.Required(
                 CONF_LATITUDE_ENTITY,
-                default=self.config_entry.data.get(CONF_LATITUDE_ENTITY)
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain=["sensor", "device_tracker", "person"])
-            ),
+                default=self._config_entry.data.get(CONF_LATITUDE_ENTITY)
+            ): str,
             vol.Required(
                 CONF_LONGITUDE_ENTITY,
-                default=self.config_entry.data.get(CONF_LONGITUDE_ENTITY)
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain=["sensor", "device_tracker", "person"])
-            ),
+                default=self._config_entry.data.get(CONF_LONGITUDE_ENTITY)
+            ): str,
+            vol.Required(
+                CONF_VISIT_MIN_GAP_MINUTES,
+                default=self._config_entry.options.get(
+                    CONF_VISIT_MIN_GAP_MINUTES,
+                    DEFAULT_VISIT_MIN_GAP_MINUTES,
+                ),
+            ): vol.All(vol.Coerce(float), vol.Clamp(min=0, max=240)),
+            vol.Required(
+                CONF_VISIT_MIN_DISTANCE_M,
+                default=self._config_entry.options.get(
+                    CONF_VISIT_MIN_DISTANCE_M,
+                    DEFAULT_VISIT_MIN_DISTANCE_M,
+                ),
+            ): vol.All(vol.Coerce(float), vol.Clamp(min=0, max=1000)),
+            vol.Required(
+                CONF_CLUSTER_RADIUS_M,
+                default=self._config_entry.options.get(
+                    CONF_CLUSTER_RADIUS_M,
+                    DEFAULT_CLUSTER_RADIUS_M,
+                ),
+            ): vol.All(vol.Coerce(float), vol.Clamp(min=0, max=1000)),
         })
 
         return self.async_show_form(
