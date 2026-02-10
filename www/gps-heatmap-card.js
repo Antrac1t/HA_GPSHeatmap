@@ -10,6 +10,14 @@ class GpsHeatmapCard extends HTMLElement {
     this._hass = null;
     this._map = null;
     this._heatLayer = null;
+  this._pointLayer = null;
+    this._resizeObserver = null;
+    this._pendingHeatmapData = null;
+    this._heatmapRetryCount = 0;
+    this._isRendered = false;
+    this._isConnected = false;
+    this._pendingInit = false;
+    this._leafletCssPromise = null;
   }
 
   setConfig(config) {
@@ -25,6 +33,15 @@ class GpsHeatmapCard extends HTMLElement {
       blur: config.blur || 15,
       max_zoom: config.max_zoom || 18,
       default_days: config.default_days || 7,
+      min_opacity: config.min_opacity ?? 0.2,
+      adaptive_radius: config.adaptive_radius ?? true,
+      min_radius: config.min_radius || 10,
+      max_radius: config.max_radius || 120,
+  show_points: config.show_points ?? false,
+  max_point_markers: config.max_point_markers || 200,
+  visit_min_gap_minutes: config.visit_min_gap_minutes ?? 10,
+  visit_min_distance_m: config.visit_min_distance_m ?? 25,
+  cluster_radius_m: config.cluster_radius_m ?? 0,
       gradient: config.gradient || {
         0.0: 'blue',
         0.5: 'lime',
@@ -34,6 +51,11 @@ class GpsHeatmapCard extends HTMLElement {
     };
 
     this.render();
+    this._isRendered = true;
+    if (this._pendingInit) {
+      this._pendingInit = false;
+      this.tryInitMap();
+    }
   }
 
   set hass(hass) {
@@ -46,20 +68,46 @@ class GpsHeatmapCard extends HTMLElement {
     }
 
     // Initialize map if not exists
-    if (!this._map) {
-      this.initMap();
+    this.tryInitMap();
+  }
+
+  connectedCallback() {
+    this._isConnected = true;
+    this.tryInitMap();
+  }
+
+  disconnectedCallback() {
+    if (this._resizeObserver) {
+      this._resizeObserver.disconnect();
+      this._resizeObserver = null;
     }
+    this._isConnected = false;
+  }
+
+  tryInitMap() {
+    if (this._map) {
+      return;
+    }
+    if (!this._hass || !this._isRendered || !this._isConnected) {
+      this._pendingInit = true;
+      return;
+    }
+    requestAnimationFrame(() => this.initMap());
   }
 
   render() {
     this.shadowRoot.innerHTML = `
+      <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" data-leaflet-style>
       <style>
         :host {
           display: block;
+          width: 100%;
         }
         
         ha-card {
           overflow: hidden;
+          display: block;
+          width: 100%;
         }
         
         .card-header {
@@ -72,11 +120,13 @@ class GpsHeatmapCard extends HTMLElement {
         .card-content {
           padding: 0;
           position: relative;
+          width: 100%;
         }
         
         #map {
           width: 100%;
           height: ${this._config.height};
+          min-height: 200px;
         }
         
         .controls {
@@ -229,6 +279,46 @@ class GpsHeatmapCard extends HTMLElement {
       zoomControl: true
     });
 
+    this._map.whenReady(() => {
+      this._map.invalidateSize();
+      if (this._pendingHeatmapData) {
+        this.updateHeatmap(this._pendingHeatmapData);
+      }
+    });
+
+    // Ensure map size is correct after first render
+    requestAnimationFrame(() => {
+      if (this._map) {
+        this._map.invalidateSize();
+      }
+    });
+
+    setTimeout(() => {
+      if (this._map) {
+        this._map.invalidateSize();
+        if (this._heatLayer && typeof this._heatLayer.redraw === 'function') {
+          this._heatLayer.redraw();
+        }
+      }
+    }, 250);
+
+    // Observe size changes to keep Leaflet canvas in sync
+    if (this._resizeObserver) {
+      this._resizeObserver.disconnect();
+    }
+    this._resizeObserver = new ResizeObserver(() => {
+      if (this._map) {
+        this._map.invalidateSize();
+        if (this._heatLayer && typeof this._heatLayer.redraw === 'function') {
+          this._heatLayer.redraw();
+        }
+        if (this._pendingHeatmapData) {
+          this.updateHeatmap(this._pendingHeatmapData);
+        }
+      }
+    });
+    this._resizeObserver.observe(mapElement);
+
     // Use HA tile layer (same as HA map)
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© OpenStreetMap contributors',
@@ -248,25 +338,42 @@ class GpsHeatmapCard extends HTMLElement {
       }
 
       // Load Leaflet CSS
-      if (!document.querySelector('link[href*="leaflet.css"]')) {
-        const cssLink = document.createElement('link');
-        cssLink.rel = 'stylesheet';
-        cssLink.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-        document.head.appendChild(cssLink);
+      if (!this._leafletCssPromise) {
+        this._leafletCssPromise = new Promise((cssResolve) => {
+          let cssLink = this.shadowRoot.querySelector('link[data-leaflet-style]');
+          if (!cssLink) {
+            cssLink = document.createElement('link');
+            cssLink.rel = 'stylesheet';
+            cssLink.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+            cssLink.setAttribute('data-leaflet-style', 'true');
+            this.shadowRoot.prepend(cssLink);
+          }
+
+          if (cssLink.sheet) {
+            cssResolve();
+            return;
+          }
+
+          cssLink.addEventListener('load', () => cssResolve(), { once: true });
+          cssLink.addEventListener('error', () => cssResolve(), { once: true });
+        });
       }
 
       // Load Leaflet JS
       if (typeof L === 'undefined') {
         const leafletScript = document.createElement('script');
         leafletScript.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-        leafletScript.onload = () => {
+        leafletScript.onload = async () => {
           console.log('Leaflet loaded');
+          await this._leafletCssPromise;
           this.loadHeatPlugin().then(resolve).catch(reject);
         };
         leafletScript.onerror = () => reject(new Error('Failed to load Leaflet'));
         document.head.appendChild(leafletScript);
       } else {
-        this.loadHeatPlugin().then(resolve).catch(reject);
+        this._leafletCssPromise.then(() => {
+          this.loadHeatPlugin().then(resolve).catch(reject);
+        });
       }
     });
   }
@@ -340,7 +447,10 @@ class GpsHeatmapCard extends HTMLElement {
           latitude_entity: latEntity,
           longitude_entity: lonEntity,
           start_time: startDate.toISOString(),
-          end_time: endDate.toISOString()
+          end_time: endDate.toISOString(),
+          visit_min_gap_minutes: this._config.visit_min_gap_minutes,
+          visit_min_distance_m: this._config.visit_min_distance_m,
+          cluster_radius_m: this._config.cluster_radius_m
         })
       });
 
@@ -361,9 +471,36 @@ class GpsHeatmapCard extends HTMLElement {
   }
 
   updateHeatmap(data) {
+    this._pendingHeatmapData = data;
+    const mapElement = this.shadowRoot.getElementById('map');
+    const size = this._map ? this._map.getSize() : { x: 0, y: 0 };
+    const isVisible = mapElement && mapElement.offsetParent !== null && mapElement.offsetWidth > 0 && mapElement.offsetHeight > 0;
+    if (!this._map || size.x === 0 || size.y === 0 || !isVisible) {
+      this._heatmapRetryCount += 1;
+      if (this._heatmapRetryCount <= 10) {
+        setTimeout(() => {
+          if (this._pendingHeatmapData) {
+            this.updateHeatmap(this._pendingHeatmapData);
+          }
+        }, 150);
+      } else {
+        console.error('Map size is still zero after retries');
+        alert('Mapa se zatím nenačetla. Zkuste chvíli počkat a pak znovu načíst data.');
+      }
+      return;
+    }
+    this._heatmapRetryCount = 0;
+
+    this._map.invalidateSize();
+
     // Remove existing heat layer
     if (this._heatLayer) {
       this._map.removeLayer(this._heatLayer);
+    }
+
+    if (this._pointLayer) {
+      this._map.removeLayer(this._pointLayer);
+      this._pointLayer = null;
     }
 
     if (!data.points || data.points.length === 0) {
@@ -379,13 +516,41 @@ class GpsHeatmapCard extends HTMLElement {
     }
 
     try {
+      const radius = this.getAdaptiveRadius();
+      const blur = this.getAdaptiveBlur(radius);
+      const maxIntensity = data.max_count && data.max_count > 0 ? data.max_count : undefined;
+
       // Create heat layer
       this._heatLayer = L.heatLayer(data.points, {
-        radius: this._config.radius,
-        blur: this._config.blur,
+        radius: radius,
+        blur: blur,
         maxZoom: this._config.max_zoom,
-        gradient: this._config.gradient
+        gradient: this._config.gradient,
+        minOpacity: this._config.min_opacity,
+        max: maxIntensity
       }).addTo(this._map);
+
+      if (this._config.show_points) {
+        const pointsSorted = data.points
+          .slice()
+          .sort((a, b) => b[2] - a[2])
+          .slice(0, this._config.max_point_markers);
+
+        this._pointLayer = L.layerGroup();
+        pointsSorted.forEach(([lat, lon, count]) => {
+          const marker = L.circleMarker([lat, lon], {
+            radius: Math.max(4, Math.min(12, Math.round(count))),
+            color: '#111827',
+            weight: 1,
+            fillColor: '#ffffff',
+            fillOpacity: 0.75
+          });
+          marker.bindTooltip(`Návštěvy: ${count}`, { direction: 'top' });
+          marker.addTo(this._pointLayer);
+        });
+
+        this._pointLayer.addTo(this._map);
+      }
 
       // Update stats
       this.shadowRoot.getElementById('totalPoints').textContent = data.total_points;
@@ -418,6 +583,25 @@ class GpsHeatmapCard extends HTMLElement {
       height: "500px",
       default_days: 7
     };
+  }
+
+  getAdaptiveRadius() {
+    if (!this._map || !this._config.adaptive_radius) {
+      return this._config.radius;
+    }
+    const baseZoom = 13;
+    const zoom = this._map.getZoom();
+    const scale = Math.pow(2, baseZoom - zoom);
+    const radius = this._config.radius * scale;
+    return Math.max(this._config.min_radius, Math.min(radius, this._config.max_radius));
+  }
+
+  getAdaptiveBlur(radius) {
+    if (!this._config.adaptive_radius) {
+      return this._config.blur;
+    }
+    const blur = Math.round(radius * 0.6);
+    return Math.max(10, Math.min(blur, this._config.max_radius));
   }
 }
 
